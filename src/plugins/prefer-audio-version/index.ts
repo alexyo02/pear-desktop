@@ -11,6 +11,50 @@ export type PreferAudioVersionConfig = {
   optimizeAudioBitrate: boolean;
 };
 
+const optimizeAudioQuality = (
+  api: MusicPlayer,
+  playerResponse: GetPlayerResponse,
+) => {
+  try {
+    const streamingData = playerResponse?.streamingData;
+    if (!streamingData || !streamingData.adaptiveFormats) {
+      return;
+    }
+
+    // Find all audio-only formats
+    const audioFormats = streamingData.adaptiveFormats.filter(
+      (format) => format.mimeType?.includes('audio') && format.audioQuality,
+    );
+
+    if (audioFormats.length === 0) {
+      return;
+    }
+
+    // Sort by bitrate (highest first)
+    audioFormats.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+
+    const bestAudioFormat = audioFormats[0];
+
+    // Map audio quality to YouTube's quality levels
+    // This is an approximation based on typical audio bitrates
+    let qualityLevel = 'hd720';
+    if (bestAudioFormat.audioQuality === 'AUDIO_QUALITY_HIGH') {
+      qualityLevel = 'hd720';
+    } else if (bestAudioFormat.audioQuality === 'AUDIO_QUALITY_MEDIUM') {
+      qualityLevel = 'large';
+    }
+
+    // Try to set the quality range to include the best audio quality
+    try {
+      api.setPlaybackQualityRange(qualityLevel);
+    } catch (error: unknown) {
+      console.debug('Could not set playback quality range:', error);
+    }
+  } catch (error: unknown) {
+    console.error('Error optimizing audio quality:', error);
+  }
+};
+
 export default createPlugin({
   name: () => t('plugins.prefer-audio-version.name'),
   description: () => t('plugins.prefer-audio-version.description'),
@@ -55,15 +99,17 @@ export default createPlugin({
       this.playerApi = api;
 
       const handleVideoDataChange = async (
-        _name: 'videodatachange',
+        _name: 'dataloaded' | 'dataupdated',
         _data: { videoId: string },
       ) => {
-        if (!this.config) {
-          this.config = await getConfig();
+        let currentConfig = this.config;
+        if (!currentConfig) {
+          currentConfig = await getConfig();
+          this.config = currentConfig;
         }
 
         // Only proceed if we should avoid music videos
-        if (!this.config.avoidMusicVideos) {
+        if (!currentConfig.avoidMusicVideos) {
           return;
         }
 
@@ -103,57 +149,20 @@ export default createPlugin({
           }
 
           // Optimize audio bitrate if enabled
-          if (this.config.optimizeAudioBitrate) {
-            this.optimizeAudioQuality(api, playerResponse);
+          if (currentConfig.optimizeAudioBitrate) {
+            try {
+              optimizeAudioQuality(api, playerResponse);
+            } catch (optimizeError: unknown) {
+              console.error('Error optimizing audio quality:', optimizeError);
+            }
           }
-        } catch (error) {
+        } catch (error: unknown) {
           console.error('prefer-audio-version error:', error);
         }
       };
 
       // Listen for video data changes
-      api.addEventListener('videodatachange', handleVideoDataChange);
-    },
-
-    optimizeAudioQuality(api: MusicPlayer, playerResponse: GetPlayerResponse) {
-      try {
-        const streamingData = playerResponse?.streamingData;
-        if (!streamingData || !streamingData.adaptiveFormats) {
-          return;
-        }
-
-        // Find all audio-only formats
-        const audioFormats = streamingData.adaptiveFormats.filter(
-          (format) => format.mimeType?.includes('audio') && format.audioQuality,
-        );
-
-        if (audioFormats.length === 0) {
-          return;
-        }
-
-        // Sort by bitrate (highest first)
-        audioFormats.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-
-        const bestAudioFormat = audioFormats[0];
-
-        // Map audio quality to YouTube's quality levels
-        // This is an approximation based on typical audio bitrates
-        let qualityLevel = 'hd720';
-        if (bestAudioFormat.audioQuality === 'AUDIO_QUALITY_HIGH') {
-          qualityLevel = 'hd720';
-        } else if (bestAudioFormat.audioQuality === 'AUDIO_QUALITY_MEDIUM') {
-          qualityLevel = 'large';
-        }
-
-        // Try to set the quality range to include the best audio quality
-        try {
-          api.setPlaybackQualityRange(qualityLevel);
-        } catch (error) {
-          console.debug('Could not set playback quality range:', error);
-        }
-      } catch (error) {
-        console.error('Error optimizing audio quality:', error);
-      }
+      api.addEventListener('videodatachange', handleVideoDataChange.bind(this));
     },
 
     onConfigChange(newConfig) {
