@@ -36,12 +36,13 @@ const optimizeAudioQuality = (
     const bestAudioFormat = audioFormats[0];
 
     // Map audio quality to YouTube's quality levels
-    // This is an approximation based on typical audio bitrates
-    let qualityLevel = 'hd720';
+    let qualityLevel: string;
     if (bestAudioFormat.audioQuality === 'AUDIO_QUALITY_HIGH') {
       qualityLevel = 'hd720';
     } else if (bestAudioFormat.audioQuality === 'AUDIO_QUALITY_MEDIUM') {
       qualityLevel = 'large';
+    } else {
+      qualityLevel = 'medium';
     }
 
     // Try to set the quality range to include the best audio quality
@@ -90,6 +91,12 @@ export default createPlugin({
   renderer: {
     config: null as PreferAudioVersionConfig | null,
     playerApi: null as MusicPlayer | null,
+    handleVideoDataChange: null as
+      | ((
+          name: 'dataloaded' | 'dataupdated',
+          data: { videoId: string },
+        ) => Promise<void>)
+      | null,
 
     async start({ getConfig }) {
       this.config = await getConfig();
@@ -161,8 +168,11 @@ export default createPlugin({
         }
       };
 
+      // Store the bound handler for cleanup
+      this.handleVideoDataChange = handleVideoDataChange.bind(this);
+
       // Listen for video data changes
-      api.addEventListener('videodatachange', handleVideoDataChange.bind(this));
+      api.addEventListener('videodatachange', this.handleVideoDataChange);
     },
 
     onConfigChange(newConfig) {
@@ -170,7 +180,14 @@ export default createPlugin({
     },
 
     stop() {
-      // Cleanup if needed
+      // Remove event listener to prevent memory leaks
+      if (this.playerApi && this.handleVideoDataChange) {
+        this.playerApi.removeEventListener(
+          'videodatachange',
+          this.handleVideoDataChange,
+        );
+        this.handleVideoDataChange = null;
+      }
     },
   },
 });
