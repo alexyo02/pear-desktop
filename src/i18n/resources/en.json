@@ -992,6 +992,14 @@
         "visualizer-type": "Visualizer Type"
       },
       "name": "Visualizer"
+    },
+    "prefer-audio-version": {
+      "name": "Prefer Audio Version",
+      "description": "Automatically prefer album/studio versions over music videos and optimize audio bitrate for best quality",
+      "menu": {
+        "avoid-music-videos": "Always prefer album/studio version over music videos",
+        "optimize-audio-bitrate": "Always use highest audio bitrate available"
+      }
     }
   }
 }
